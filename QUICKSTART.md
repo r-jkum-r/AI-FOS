@@ -1,10 +1,16 @@
-# Quick Start Guide - Linux
+# Quick Start Guide - Linux (Local Development)
 
 ## What This System Does
 
 This system translates phone calls in real-time:
 - Field Officer speaks Tamil/Telugu/Hindi → IT Team hears Hinglish
 - IT Team speaks Hinglish → Field Officer hears their language
+
+## Deployment Options
+
+- **Local Development** (this guide): For testing on your Linux machine
+- **AWS Deployment** (recommended): See [AWS-DEPLOYMENT.md](AWS-DEPLOYMENT.md) for production setup
+- **Kubernetes**: See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for large-scale deployment
 
 ## System Requirements
 

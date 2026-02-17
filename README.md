@@ -43,25 +43,31 @@ IT Team SIP Call (bidirectional)
 
 ## Quick Start
 
+### Local Development
 ```bash
-# Clone and setup
 git clone <repo>
 cd voice-ai-agent
-
-# Build containers
 docker-compose up -d
+```
+See [QUICKSTART.md](QUICKSTART.md) for detailed local setup.
 
-# Wait for services to be ready
-docker-compose logs -f backend
+### AWS Deployment (Recommended)
+```bash
+# Launch EC2 instance (t3.xlarge, Ubuntu 22.04)
+# SSH into instance
+ssh -i key.pem ubuntu@YOUR_EC2_IP
 
-# Test the system
-curl http://localhost:8000/health
+# Install and run
+curl -fsSL https://get.docker.com | sh
+git clone <repo> && cd voice-ai-agent
+docker-compose up -d
+```
+See [AWS-DEPLOYMENT.md](AWS-DEPLOYMENT.md) for complete AWS guide.
 
-# Deploy to Kubernetes (production)
+### Kubernetes (Production Scale)
+```bash
 kubectl apply -f infra/kubernetes/
 ```
-
-See [QUICKSTART.md](QUICKSTART.md) for detailed setup instructions.
 
 ## Performance Targets
 
