@@ -1,0 +1,116 @@
+version: '3.8'
+
+services:
+  # Redis for state management
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # Asterisk PBX
+  asterisk:
+    image: andrius/asterisk:18
+    ports:
+      - "5060:5060/udp"  # SIP
+      - "5060:5060/tcp"  # SIP TCP
+      - "8088:8088"      # ARI
+      - "10000-10100:10000-10100/udp"  # RTP
+    volumes:
+      - ./asterisk/sip.conf:/etc/asterisk/pjsip.conf
+      - ./asterisk/extensions.conf:/etc/asterisk/extensions.conf
+      - asterisk-data:/var/lib/asterisk
+    environment:
+      - ASTERISK_UID=1000
+      - ASTERISK_GID=1000
+    healthcheck:
+      test: ["CMD", "asterisk", "-rx", "core show version"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: .
+      dockerfile: infra/dockerfile
+    ports:
+      - "8000:8000"
+    depends_on:
+      - redis
+      - asterisk
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - ASTERISK_ARI_URL=http://asterisk:8088/ari
+      - ASTERISK_ARI_USER=asterisk
+      - ASTERISK_ARI_PASSWORD=asterisk
+    volumes:
+      - ./backend:/app
+      - model-cache:/root/.cache
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 8G
+        reservations:
+          cpus: '2'
+          memory: 4G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ARI Event Handler
+  ari-handler:
+    build:
+      context: .
+      dockerfile: infra/dockerfile
+    command: python asterisk/ari_handler.py
+    depends_on:
+      - asterisk
+      - backend
+    environment:
+      - ARI_URL=http://asterisk:8088/ari
+      - ARI_USER=asterisk
+      - ARI_PASSWORD=asterisk
+      - BACKEND_WS_URL=ws://backend:8000
+
+  # Prometheus for monitoring
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infra/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+
+  # Grafana for dashboards
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./infra/grafana-dashboards:/etc/grafana/provisioning/dashboards
+    depends_on:
+      - prometheus
+
+volumes:
+  redis-data:
+  asterisk-data:
+  model-cache:
+  prometheus-data:
+  grafana-data:

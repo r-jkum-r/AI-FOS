@@ -1,0 +1,175 @@
+UPDATED MASTER PROMPT — FULLY OPEN SOURCE ONLY
+
+You are a Senior AI Architect and Full Stack Engineer.
+
+Build a production-ready, fully open-source AI Voice Agent system that
+connects Field Officers (FOS) and the IT Team over normal phone calls
+using only open-source technologies.
+
+No paid APIs, no proprietary SaaS services allowed.
+
+🎯 PROBLEM STATEMENT
+
+Many FOS speak only regional languages (Tamil, Telugu, Kannada, Marathi,
+Hindi).
+
+The IT Team understands only Hinglish (Hindi + English mix).
+
+The system must act as a real-time bidirectional AI translator + voice
+assistant over phone calls.
+
+🎯 FINAL CALL FLOW
+
+FOS dials company number via PSTN/SIP
+
+FOS speaks in regional language
+
+AI converts speech → Hinglish voice in real time
+
+IT Team hears Hinglish audio
+
+IT Team replies in Hinglish voice
+
+AI converts Hinglish → original regional language voice
+
+FOS hears reply in their own language
+
+⚠️ STRICT RULE: Only voice communication, no text UI.
+
+🎯 CORE REQUIREMENTS
+
+✔ Works on normal phone numbers (PSTN/SIP) ✔ Real-time bidirectional
+voice translation ✔ Auto regional language detection ✔ Streaming
+pipeline with <3 sec latency ✔ Fully open-source stack ✔ Horizontally
+scalable microservices architecture ✔ Noise-robust audio handling
+
+🎯 SUPPORTED LANGUAGES
+
+Input (FOS): Tamil, Telugu, Kannada, Marathi, Hindi Output (IT Team):
+Hinglish Voice Reply: Hinglish → Original Regional Voice
+
+🎯 MANDATORY OPEN-SOURCE TECH STACK Telephony Layer
+
+SIP Server: Asterisk
+
+SIP Trunk provider compatible (generic VoIP)
+
+Backend
+
+Framework: FastAPI
+
+Streaming: WebSockets + RTP audio pipeline
+
+Speech Processing
+
+STT: Whisper (self-hosted streaming)
+
+Language Detection: fastText
+
+Translation Engine
+
+Open-source multilingual model (NLLB-200 / MarianMT)
+
+Text-to-Speech
+
+Hinglish Voice: Coqui TTS
+
+Regional Voices: Coqui TTS multilingual models
+
+Queue & State
+
+Redis
+
+Deployment
+
+Containers: Docker
+
+Orchestration: Kubernetes
+
+Monitoring
+
+Metrics: Prometheus
+
+Dashboards: Grafana
+
+🎯 HIGH-LEVEL ARCHITECTURE
+
+FOS Call (SIP/PSTN) ↓ Asterisk PBX (RTP Stream) ↓ FastAPI Voice Gateway
+↓ Streaming Audio → Whisper STT ↓ Language Detection (fastText) ↓
+Open-source Translator (NLLB/MarianMT) ↓ Coqui TTS (Hinglish Voice) ↓
+Stream Audio to IT Team SIP Call
+
+(Reverse Flow) IT Team Hinglish Voice → STT → Translation → Regional TTS
+→ FOS
+
+🎯 FEATURES TO IMPLEMENT
+
+SIP call handling via Asterisk ARI
+
+Real-time RTP audio streaming pipeline
+
+Regional language auto-detection
+
+Hinglish translation engine (open-source)
+
+Bidirectional voice conversion
+
+Failover if language not detected
+
+Redis-based session state management
+
+Admin dashboard (React) showing active calls
+
+Persistent logs of transcripts
+
+Horizontal scaling via Kubernetes
+
+🎯 DIRECTORY STRUCTURE /voice-ai-agent ├── backend/ │ ├── main.py │ ├──
+call_handler.py │ ├── translator.py │ ├── stt_engine.py │ ├──
+tts_engine.py │ ├── language_detector.py │ └── websocket_stream.py ├──
+asterisk/ │ ├── sip.conf │ ├── extensions.conf │ └── ari_handler.py ├──
+infra/ │ ├── dockerfile │ ├── kubernetes.yaml │ └── terraform/ ├──
+dashboard/ │ └── react-admin-panel └── README.md
+
+🎯 OUTPUT REQUIRED
+
+Complete architecture diagram
+
+Full FastAPI backend code
+
+Asterisk SIP + ARI integration
+
+Real-time RTP audio streaming implementation
+
+STT → Translation → TTS open-source pipeline
+
+Docker + Kubernetes deployment files
+
+Step-by-step deployment guide
+
+Testing guide with SIP softphones
+
+Scalability & latency optimization strategies
+
+Security best practices (SIP auth, TLS, encryption)
+
+🎯 CONSTRAINTS
+
+End-to-end latency target: <3 seconds
+
+Must support thousands of concurrent calls
+
+Must auto-scale via Kubernetes
+
+Must handle noisy field audio environments
+
+Must maintain high speech clarity
+
+🎯 FINAL GOAL
+
+Deliver a fully open-source multilingual AI voice agent enabling:
+
+Regional Language FOS ↔ Real-Time AI Translation ↔ Hinglish-speaking IT
+Team ↔ Voice Reply translated back to regional language
+
+No proprietary APIs. No paid services. Fully self-hosted.

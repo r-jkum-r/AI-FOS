@@ -1,0 +1,38 @@
+# Multi-stage Dockerfile for Voice Agent Backend
+
+FROM python:3.11-slim as base
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    libsndfile1 \
+    git \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Download models (done at build time to speed up startup)
+RUN python -c "from transformers import AutoTokenizer, AutoModelForSeq2SeqLM; \
+    AutoTokenizer.from_pretrained('facebook/nllb-200-distilled-600M'); \
+    AutoModelForSeq2SeqLM.from_pretrained('facebook/nllb-200-distilled-600M')"
+
+RUN python -c "from faster_whisper import WhisperModel; \
+    WhisperModel('medium', device='cpu', compute_type='int8')"
+
+RUN python -c "from TTS.api import TTS; \
+    TTS('tts_models/multilingual/multi-dataset/xtts_v2')"
+
+# Copy application code
+COPY backend/ /app/
+
+# Create models directory
+RUN mkdir -p /models
+
+EXPOSE 8000
+
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
