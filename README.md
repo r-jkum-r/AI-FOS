@@ -43,28 +43,35 @@ IT Team SIP Call (bidirectional)
 
 ## Quick Start
 
-### Local Development
+### WSL Ubuntu (Windows Users)
+```bash
+# In WSL Ubuntu terminal
+git clone <repo>
+cd voice-ai-agent
+sudo service docker start
+docker-compose up -d
+```
+See [WSL-SETUP.md](WSL-SETUP.md) for complete WSL guide.
+
+### Linux (Local Development)
 ```bash
 git clone <repo>
 cd voice-ai-agent
 docker-compose up -d
 ```
-See [QUICKSTART.md](QUICKSTART.md) for detailed local setup.
+See [QUICKSTART.md](QUICKSTART.md) for detailed Linux setup.
 
-### AWS Deployment (Recommended)
+### AWS Deployment (Production)
 ```bash
 # Launch EC2 instance (t3.xlarge, Ubuntu 22.04)
-# SSH into instance
 ssh -i key.pem ubuntu@YOUR_EC2_IP
-
-# Install and run
 curl -fsSL https://get.docker.com | sh
 git clone <repo> && cd voice-ai-agent
 docker-compose up -d
 ```
 See [AWS-DEPLOYMENT.md](AWS-DEPLOYMENT.md) for complete AWS guide.
 
-### Kubernetes (Production Scale)
+### Kubernetes (Large Scale)
 ```bash
 kubectl apply -f infra/kubernetes/
 ```

@@ -4,19 +4,27 @@ FROM python:3.11-slim AS base
 
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies (critical for torch, TTS, whisper, librosa)
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     libsndfile1 \
     git \
     build-essential \
+    cmake \
+    pkg-config \
+    espeak-ng \
+    libgl1 \
+    sox \
     && rm -rf /var/lib/apt/lists/*
+
+# Upgrade pip first
+RUN pip install --upgrade pip setuptools wheel
 
 # Install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Download models (done at build time to speed up startup)
+# Download models (build-time caching)
 RUN python -c "from transformers import AutoTokenizer, AutoModelForSeq2SeqLM; \
     AutoTokenizer.from_pretrained('facebook/nllb-200-distilled-600M'); \
     AutoModelForSeq2SeqLM.from_pretrained('facebook/nllb-200-distilled-600M')"
