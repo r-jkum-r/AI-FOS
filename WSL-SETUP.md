@@ -574,3 +574,42 @@ df -h
 - Docker in WSL: https://docs.docker.com/desktop/wsl/
 - Project Docs: [docs/](docs/)
 - AWS Deployment: [AWS-DEPLOYMENT.md](AWS-DEPLOYMENT.md)
+
+
+## Troubleshooting: SSL Certificate Errors
+
+If you get `x509: certificate signed by unknown authority` error:
+
+### Quick Fix 1: Update Certificates
+
+```bash
+sudo apt update
+sudo apt install ca-certificates -y
+sudo update-ca-certificates
+sudo service docker restart
+```
+
+### Quick Fix 2: Use Simplified Compose File
+
+```bash
+# Use the simple version that doesn't require building
+docker-compose -f docker-compose.simple.yml up -d
+```
+
+### Quick Fix 3: Pull Images First
+
+```bash
+# Pull all images manually first
+docker pull python:3.11-slim
+docker pull redis:7-alpine
+docker pull andrius/asterisk:18
+docker pull prom/prometheus:latest
+docker pull grafana/grafana:latest
+
+# Then build
+docker-compose build --no-cache
+```
+
+### For Corporate Networks
+
+If you're behind a corporate proxy/firewall, see [FIX-SSL-ISSUES.md](FIX-SSL-ISSUES.md) for detailed solutions.
