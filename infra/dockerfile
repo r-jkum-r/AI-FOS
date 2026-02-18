@@ -1,11 +1,10 @@
-# Multi-stage Dockerfile for Voice Agent Backend
-
 FROM python:3.11-slim AS base
 
 WORKDIR /app
 
-# Install system dependencies (critical for torch, TTS, whisper, librosa)
+# Install system + SSL certs + build deps
 RUN apt-get update && apt-get install -y \
+    ca-certificates \
     ffmpeg \
     libsndfile1 \
     git \
@@ -15,7 +14,6 @@ RUN apt-get update && apt-get install -y \
     espeak-ng \
     libgl1 \
     sox \
-    # 🔥 REQUIRED for PyAV / faster-whisper
     libavformat-dev \
     libavcodec-dev \
     libavdevice-dev \
@@ -23,19 +21,19 @@ RUN apt-get update && apt-get install -y \
     libavfilter-dev \
     libswscale-dev \
     libswresample-dev \
+    && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+# Copy requirements FIRST (so pip can access it)
+COPY requirements.txt /app/requirements.txt
 
-# Upgrade pip first
-RUN pip install --upgrade pip setuptools wheel
-
-# Install Python dependencies
-COPY requirements.txt .
+# Upgrade pip and install deps (CPU torch index)
 RUN pip install --upgrade pip setuptools wheel && \
-    pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt
+    pip install --no-cache-dir \
+    --extra-index-url https://download.pytorch.org/whl/cpu \
+    -r requirements.txt
 
-
-# Download models (build-time caching)
+# Download models (cached in layer)
 RUN python -c "from transformers import AutoTokenizer, AutoModelForSeq2SeqLM; \
     AutoTokenizer.from_pretrained('facebook/nllb-200-distilled-600M'); \
     AutoModelForSeq2SeqLM.from_pretrained('facebook/nllb-200-distilled-600M')"
@@ -46,10 +44,9 @@ RUN python -c "from faster_whisper import WhisperModel; \
 RUN python -c "from TTS.api import TTS; \
     TTS('tts_models/multilingual/multi-dataset/xtts_v2')"
 
-# Copy application code
+# Copy backend code
 COPY backend/ /app/
 
-# Create models directory
 RUN mkdir -p /models
 
 EXPOSE 8000
