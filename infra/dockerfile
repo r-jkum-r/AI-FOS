@@ -15,7 +15,16 @@ RUN apt-get update && apt-get install -y \
     espeak-ng \
     libgl1 \
     sox \
+    # 🔥 REQUIRED for PyAV / faster-whisper
+    libavformat-dev \
+    libavcodec-dev \
+    libavdevice-dev \
+    libavutil-dev \
+    libavfilter-dev \
+    libswscale-dev \
+    libswresample-dev \
     && rm -rf /var/lib/apt/lists/*
+
 
 # Upgrade pip first
 RUN pip install --upgrade pip setuptools wheel
