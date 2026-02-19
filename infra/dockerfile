@@ -1,10 +1,9 @@
 # Multi-stage Dockerfile for Voice Agent Backend (CPU only)
-
 FROM python:3.11-slim AS base
 
 WORKDIR /app
 
-# Install system dependencies + SSL certificates fix
+# Install system dependencies + SSL certificates fix + PyAV build deps
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     curl \
@@ -12,6 +11,14 @@ RUN apt-get update && apt-get install -y \
     libsndfile1 \
     git \
     build-essential \
+    pkg-config \
+    libavformat-dev \
+    libavcodec-dev \
+    libavdevice-dev \
+    libavutil-dev \
+    libavfilter-dev \
+    libswscale-dev \
+    libswresample-dev \
     && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
@@ -21,10 +28,10 @@ COPY requirements.txt /app/requirements.txt
 # Upgrade pip tools
 RUN python -m pip install --upgrade pip setuptools wheel
 
-# Install PyTorch CPU build separately (avoids +cpu resolution & SSL fallback issues)
+# Install PyTorch CPU build separately
 RUN pip install --no-cache-dir torch==2.1.2 --index-url https://download.pytorch.org/whl/cpu
 
-# Install remaining Python dependencies from PyPI
+# Install remaining Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Download models at build time (faster startup)
