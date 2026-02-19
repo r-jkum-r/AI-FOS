@@ -8,14 +8,19 @@ import numpy as np
 from faster_whisper import WhisperModel
 import torch
 
+from config import settings
+
 logger = logging.getLogger(__name__)
 
 class WhisperSTT:
-    def __init__(self, model_size: str = "medium"):
+    def __init__(self, model_size: str = None):
         """
         Initialize Whisper model
         Using faster-whisper for optimized inference
         """
+        if model_size is None:
+            model_size = settings.whisper_model_size
+            
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.compute_type = "float16" if self.device == "cuda" else "int8"
         

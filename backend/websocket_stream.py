@@ -4,10 +4,12 @@ Audio Stream Manager - Handles real-time bidirectional audio streaming
 import asyncio
 import logging
 import numpy as np
+import json
 from fastapi import WebSocket
 from typing import Dict
-import struct
+from datetime import datetime
 
+from config import settings
 from stt_engine import WhisperSTT
 from language_detector import LanguageDetector
 from translator import TranslationEngine
@@ -20,11 +22,16 @@ class AudioStreamManager:
         self.redis = redis_client
         self.active_streams: Dict[str, Dict] = {}
         
-        # Initialize AI pipeline components
-        self.stt = WhisperSTT()
-        self.language_detector = LanguageDetector()
-        self.translator = TranslationEngine()
-        self.tts = CoquiTTS()
+        # Initialize AI pipeline components with error handling
+        try:
+            self.stt = WhisperSTT(model_size=settings.whisper_model_size)
+            self.language_detector = LanguageDetector()
+            self.translator = TranslationEngine(model_name=settings.nllb_model_name)
+            self.tts = CoquiTTS()
+            logger.info("AI pipeline initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize AI pipeline: {e}")
+            raise
         
     async def handle_audio_stream(self, websocket: WebSocket, call_id: str):
         """
@@ -54,69 +61,94 @@ class AudioStreamManager:
         """
         Process audio chunk through STT → Translation → TTS pipeline
         """
-        stream = self.active_streams[call_id]
+        stream = self.active_streams.get(call_id)
+        if not stream:
+            logger.warning(f"Stream not found for call: {call_id}")
+            return
+        
         stream["buffer"].extend(audio_data)
         
-        # Process when buffer reaches threshold (e.g., 1 second of audio)
-        if len(stream["buffer"]) >= 16000 * 2:  # 16kHz, 16-bit
+        # Process when buffer reaches threshold
+        if len(stream["buffer"]) >= settings.audio_chunk_size:
             audio_chunk = bytes(stream["buffer"])
             stream["buffer"].clear()
             
-            # Convert bytes to numpy array
-            audio_array = np.frombuffer(audio_chunk, dtype=np.int16).astype(np.float32) / 32768.0
-            
-            # Step 1: Speech-to-Text
-            text = await self.stt.transcribe_streaming(audio_array)
-            
-            if text:
-                logger.info(f"Transcribed [{call_id}]: {text}")
+            try:
+                # Convert bytes to numpy array
+                audio_array = np.frombuffer(audio_chunk, dtype=np.int16).astype(np.float32) / 32768.0
                 
-                # Step 2: Detect language (first time only)
-                if not stream["language"]:
-                    detected_lang = await self.language_detector.detect(text)
-                    stream["language"] = detected_lang
-                    await self.redis.hset(f"call:{call_id}", "language", detected_lang)
-                    logger.info(f"Language detected: {detected_lang}")
+                # Step 1: Speech-to-Text
+                text = await self.stt.transcribe_streaming(audio_array)
                 
-                # Step 3: Translate
-                if stream["direction"] == "fos_to_it":
-                    # Regional → Hinglish
-                    translated = await self.translator.translate(
-                        text,
-                        source_lang=stream["language"],
-                        target_lang="hi_en"  # Hinglish
-                    )
-                else:
-                    # Hinglish → Regional
-                    translated = await self.translator.translate(
-                        text,
-                        source_lang="hi_en",
-                        target_lang=stream["language"]
-                    )
-                
-                logger.info(f"Translated [{call_id}]: {translated}")
-                
-                # Step 4: Text-to-Speech
-                target_lang = "hi_en" if stream["direction"] == "fos_to_it" else stream["language"]
-                audio_output = await self.tts.synthesize(translated, target_lang)
-                
-                # Step 5: Send audio back through WebSocket
-                await stream["websocket"].send_bytes(audio_output)
-                
-                # Store transcript
-                await self._store_transcript(call_id, text, translated)
+                if text:
+                    logger.info(f"Transcribed [{call_id}]: {text}")
+                    
+                    # Step 2: Detect language (first time only)
+                    if not stream["language"]:
+                        detected_lang = await self.language_detector.detect(text)
+                        stream["language"] = detected_lang
+                        
+                        # Update in Redis
+                        call_data_str = await self.redis.get(f"call:{call_id}")
+                        if call_data_str:
+                            call_data = json.loads(call_data_str)
+                            call_data["language"] = detected_lang
+                            await self.redis.set(
+                                f"call:{call_id}",
+                                json.dumps(call_data),
+                                ex=settings.redis_ttl_calls
+                            )
+                        
+                        logger.info(f"Language detected: {detected_lang}")
+                    
+                    # Step 3: Translate
+                    if stream["direction"] == "fos_to_it":
+                        # Regional → Hinglish
+                        translated = await self.translator.translate(
+                            text,
+                            source_lang=stream["language"],
+                            target_lang="hi_en"  # Hinglish
+                        )
+                    else:
+                        # Hinglish → Regional
+                        translated = await self.translator.translate(
+                            text,
+                            source_lang="hi_en",
+                            target_lang=stream["language"]
+                        )
+                    
+                    logger.info(f"Translated [{call_id}]: {translated}")
+                    
+                    # Step 4: Text-to-Speech
+                    target_lang = "hi_en" if stream["direction"] == "fos_to_it" else stream["language"]
+                    audio_output = await self.tts.synthesize(translated, target_lang)
+                    
+                    # Step 5: Send audio back through WebSocket
+                    if audio_output:
+                        await stream["websocket"].send_bytes(audio_output)
+                    
+                    # Store transcript
+                    await self._store_transcript(call_id, text, translated, stream["direction"])
+                    
+            except Exception as e:
+                logger.error(f"Error processing audio chunk for {call_id}: {e}")
+                # Continue processing despite errors
     
-    async def _store_transcript(self, call_id: str, original: str, translated: str):
-        """Store conversation transcript in Redis"""
+    async def _store_transcript(self, call_id: str, original: str, translated: str, direction: str):
+        """Store conversation transcript in Redis with proper JSON serialization"""
         transcript_entry = {
-            "timestamp": asyncio.get_event_loop().time(),
+            "timestamp": datetime.utcnow().isoformat(),
+            "direction": direction,
             "original": original,
             "translated": translated
         }
+        
+        # Store as JSON string
         await self.redis.rpush(
             f"call:{call_id}:transcript",
-            str(transcript_entry)
+            json.dumps(transcript_entry)
         )
+        await self.redis.expire(f"call:{call_id}:transcript", settings.redis_ttl_transcripts)
     
     async def cleanup_stream(self, call_id: str):
         """Clean up stream resources"""

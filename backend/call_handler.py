@@ -4,18 +4,21 @@ Call Handler - Manages SIP call lifecycle via Asterisk ARI
 import asyncio
 import logging
 import uuid
+import json
 from datetime import datetime
 import aiohttp
-from typing import Optional, Dict
+from typing import Optional, Dict, List
+
+from config import settings
 
 logger = logging.getLogger(__name__)
 
 class CallHandler:
     def __init__(self, redis_client):
         self.redis = redis_client
-        self.ari_url = "http://asterisk:8088/ari"
-        self.ari_user = "asterisk"
-        self.ari_password = "asterisk"
+        self.ari_url = settings.asterisk_ari_url
+        self.ari_user = settings.asterisk_ari_user
+        self.ari_password = settings.asterisk_ari_password
         
     async def create_call(self, caller_number: str, destination: str) -> str:
         """Create new call session"""
@@ -27,11 +30,15 @@ class CallHandler:
             "destination": destination,
             "status": "initiated",
             "created_at": datetime.utcnow().isoformat(),
-            "language": None,
-            "transcript": []
+            "language": None
         }
         
-        await self.redis.hset(f"call:{call_id}", mapping=call_data)
+        # Store as JSON string for proper serialization
+        await self.redis.set(
+            f"call:{call_id}",
+            json.dumps(call_data),
+            ex=settings.redis_ttl_calls
+        )
         await self.redis.incr("active_calls_count")
         
         # Initiate call via Asterisk ARI
@@ -63,43 +70,76 @@ class CallHandler:
                 ) as resp:
                     if resp.status == 200:
                         channel_data = await resp.json()
-                        await self.redis.hset(
-                            f"call:{call_id}",
-                            "channel_id",
-                            channel_data.get("id")
-                        )
+                        
+                        # Update call data with channel ID
+                        call_data_str = await self.redis.get(f"call:{call_id}")
+                        if call_data_str:
+                            call_data = json.loads(call_data_str)
+                            call_data["channel_id"] = channel_data.get("id")
+                            await self.redis.set(
+                                f"call:{call_id}",
+                                json.dumps(call_data),
+                                ex=settings.redis_ttl_calls
+                            )
+                        
                         logger.info(f"Call originated: {call_id}")
                     else:
-                        logger.error(f"Failed to originate call: {resp.status}")
+                        error_text = await resp.text()
+                        logger.error(f"Failed to originate call: {resp.status} - {error_text}")
             except Exception as e:
                 logger.error(f"Error originating call: {e}")
     
     async def hangup_call(self, call_id: str):
         """Terminate call"""
-        channel_id = await self.redis.hget(f"call:{call_id}", "channel_id")
+        call_data_str = await self.redis.get(f"call:{call_id}")
         
-        if channel_id:
-            async with aiohttp.ClientSession() as session:
-                url = f"{self.ari_url}/channels/{channel_id}"
-                try:
-                    async with session.delete(
-                        url,
-                        auth=aiohttp.BasicAuth(self.ari_user, self.ari_password)
-                    ) as resp:
-                        logger.info(f"Call hung up: {call_id}")
-                except Exception as e:
-                    logger.error(f"Error hanging up call: {e}")
-        
-        await self.redis.hset(f"call:{call_id}", "status", "terminated")
-        await self.redis.decr("active_calls_count")
-        await self.redis.incr("total_calls_processed")
+        if call_data_str:
+            call_data = json.loads(call_data_str)
+            channel_id = call_data.get("channel_id")
+            
+            if channel_id:
+                async with aiohttp.ClientSession() as session:
+                    url = f"{self.ari_url}/channels/{channel_id}"
+                    try:
+                        async with session.delete(
+                            url,
+                            auth=aiohttp.BasicAuth(self.ari_user, self.ari_password)
+                        ) as resp:
+                            logger.info(f"Call hung up: {call_id}")
+                    except Exception as e:
+                        logger.error(f"Error hanging up call: {e}")
+            
+            # Update status
+            call_data["status"] = "terminated"
+            await self.redis.set(
+                f"call:{call_id}",
+                json.dumps(call_data),
+                ex=settings.redis_ttl_calls
+            )
+            await self.redis.decr("active_calls_count")
+            await self.redis.incr("total_calls_processed")
     
     async def get_call_status(self, call_id: str) -> Dict:
         """Get call status and metadata"""
-        call_data = await self.redis.hgetall(f"call:{call_id}")
-        return call_data if call_data else {"error": "Call not found"}
+        call_data_str = await self.redis.get(f"call:{call_id}")
+        if call_data_str:
+            return json.loads(call_data_str)
+        return {"error": "Call not found"}
+    
+    async def get_call_transcript(self, call_id: str) -> List[Dict]:
+        """Get call transcript"""
+        transcript_data = await self.redis.lrange(f"call:{call_id}:transcript", 0, -1)
+        return [json.loads(entry) for entry in transcript_data]
     
     async def update_language(self, call_id: str, language: str):
         """Update detected language for call"""
-        await self.redis.hset(f"call:{call_id}", "language", language)
-        logger.info(f"Language detected for {call_id}: {language}")
+        call_data_str = await self.redis.get(f"call:{call_id}")
+        if call_data_str:
+            call_data = json.loads(call_data_str)
+            call_data["language"] = language
+            await self.redis.set(
+                f"call:{call_id}",
+                json.dumps(call_data),
+                ex=settings.redis_ttl_calls
+            )
+            logger.info(f"Language detected for {call_id}: {language}")

@@ -7,14 +7,19 @@ import torch
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 import asyncio
 
+from config import settings
+
 logger = logging.getLogger(__name__)
 
 class TranslationEngine:
-    def __init__(self, model_name: str = "facebook/nllb-200-distilled-600M"):
+    def __init__(self, model_name: str = None):
         """
         Initialize NLLB translation model
         Using distilled version for faster inference
         """
+        if model_name is None:
+            model_name = settings.nllb_model_name
+            
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         logger.info(f"Loading translation model: {model_name} on {self.device}")
         
