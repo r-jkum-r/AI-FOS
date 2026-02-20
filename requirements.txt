@@ -6,11 +6,11 @@ aiohttp==3.9.1
 pydantic-settings==2.1.0
 
 # AI/ML Libraries (CPU only)
-torch==2.1.2
 transformers==4.37.0
 faster-whisper==0.10.0
 TTS==0.22.0
 fasttext-wheel==0.9.2
+av==10.0.0
 
 # Audio Processing
 numpy==1.26.3
@@ -19,4 +19,3 @@ librosa==0.10.1
 
 # Monitoring
 prometheus-client==0.19.0
-
