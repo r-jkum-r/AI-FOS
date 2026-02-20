@@ -3,7 +3,7 @@ FROM python:3.11-slim AS base
 
 WORKDIR /app
 
-# Install system dependencies + SSL certificates fix + PyAV build deps
+# Install system dependencies + SSL fix + FFmpeg/PyAV build deps
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     openssl \
@@ -23,19 +23,28 @@ RUN apt-get update && apt-get install -y \
     && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements first (for caching)
+# Ensure Python + requests use system CA bundle (fix SSL issues behind VPN/proxy)
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+ENV REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+
+# Copy requirements first (for Docker layer caching)
 COPY requirements.txt /app/requirements.txt
 
-# Upgrade pip tools
+# Upgrade pip tooling
 RUN python -m pip install --upgrade pip setuptools wheel
 
-# Install PyTorch CPU build separately
-RUN pip install --no-cache-dir torch==2.1.2 --index-url https://download.pytorch.org/whl/cpu
+# Install PyTorch CPU build (stable method)
+RUN pip install --no-cache-dir \
+    torch==2.1.2+cpu \
+    --extra-index-url https://download.pytorch.org/whl/cpu
+
+# Install PyAV prebuilt wheel (prevents "Failed to build av")
+RUN pip install --no-cache-dir av==10.0.0
 
 # Install remaining Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Download models at build time (faster startup)
+# Download models at build time (faster runtime startup)
 RUN python -c "from transformers import AutoTokenizer, AutoModelForSeq2SeqLM; \
 AutoTokenizer.from_pretrained('facebook/nllb-200-distilled-600M'); \
 AutoModelForSeq2SeqLM.from_pretrained('facebook/nllb-200-distilled-600M')"
@@ -49,7 +58,7 @@ TTS('tts_models/multilingual/multi-dataset/xtts_v2')"
 # Copy backend application code
 COPY backend/ /app/
 
-# Create models directory
+# Create models directory (optional runtime volume)
 RUN mkdir -p /models
 
 EXPOSE 8000
