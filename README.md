@@ -88,6 +88,7 @@ curl http://localhost:8000/health
 ### Getting Started
 - **[QUICK-REFERENCE-CORPORATE.md](QUICK-REFERENCE-CORPORATE.md)** - Quick commands for corporate WSL ⚡
 - **[CORPORATE-WSL-SETUP.md](CORPORATE-WSL-SETUP.md)** - Corporate laptop with WSL Ubuntu (proxy, SSL, firewall) ⭐
+- **[INSTALLATION-GUIDE.md](INSTALLATION-GUIDE.md)** - Dependency installation and troubleshooting 🔧
 - **[QUICKSTART.md](QUICKSTART.md)** - Complete setup guide for all platforms
 - **[WSL-SETUP.md](WSL-SETUP.md)** - Windows-specific setup with WSL2
 - **[.env.example](.env.example)** - Configuration template with all options
@@ -96,6 +97,8 @@ curl http://localhost:8000/health
 - **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** - System architecture and design
 - **[ARCHITECTURE-FIXES.md](ARCHITECTURE-FIXES.md)** - Recent improvements and compliance fixes
 - **[CHANGES-SUMMARY.md](CHANGES-SUMMARY.md)** - Summary of all changes made
+- **[DEPENDENCIES.md](DEPENDENCIES.md)** - Complete dependency documentation
+- **[DEPENDENCY-FIXES.md](DEPENDENCY-FIXES.md)** - Dependency version fixes
 
 ### Deployment & Operations
 - **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** - Kubernetes deployment guide

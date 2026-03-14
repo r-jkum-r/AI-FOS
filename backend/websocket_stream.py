@@ -1,23 +1,65 @@
 """
-Audio Stream Manager - Handles real-time bidirectional audio streaming
+WebSocket Stream Manager - Handles real-time audio streaming
+Manages bidirectional audio, buffering, and synchronization
+Production-ready with proper queue management and error handling
 """
 import asyncio
 import logging
-import numpy as np
-import json
+from typing import Dict, Optional
 from fastapi import WebSocket
-from typing import Dict
-from datetime import datetime
-
-from config import settings
-from stt_engine import WhisperSTT
-from language_detector import LanguageDetector
-from translator import TranslationEngine
-from tts_engine import CoquiTTS
 
 logger = logging.getLogger(__name__)
 
 class AudioStreamManager:
+    """Manages WebSocket audio streams for calls"""
+    
+    def __init__(self, call_handler):
+        self.call_handler = call_handler
+        self.connections: Dict[str, WebSocket] = {}
+        self.buffers: Dict[str, asyncio.Queue] = {}
+    
+    async def register_connection(self, call_id: str, websocket: WebSocket):
+        """Register a new WebSocket connection"""
+        self.connections[call_id] = websocket
+        self.buffers[call_id] = asyncio.Queue(maxsize=100)
+        logger.info(f"✓ WebSocket registered for call {call_id}")
+    
+    async def unregister_connection(self, call_id: str):
+        """Unregister a WebSocket connection"""
+        if call_id in self.connections:
+            del self.connections[call_id]
+        if call_id in self.buffers:
+            del self.buffers[call_id]
+        logger.info(f"✓ WebSocket unregistered for call {call_id}")
+    
+    async def process_audio(self, call_id: str, audio_data: bytes):
+        """Process incoming audio data"""
+        try:
+            if call_id not in self.buffers:
+                return
+            
+            # Queue audio for processing
+            queue = self.buffers[call_id]
+            if not queue.full():
+                await queue.put(audio_data)
+            else:
+                logger.warning(f"Audio buffer full for call {call_id}, dropping packet")
+            
+        except Exception as e:
+            logger.error(f"Error processing audio for {call_id}: {str(e)}")
+    
+    async def get_audio_chunk(self, call_id: str, timeout: float = 1.0) -> Optional[bytes]:
+        """Get next audio chunk from buffer"""
+        try:
+            if call_id not in self.buffers:
+                return None
+            queue = self.buffers[call_id]
+            return await asyncio.wait_for(queue.get(), timeout=timeout)
+        except asyncio.TimeoutError:
+            return None
+        except Exception as e:
+            logger.error(f"Error getting audio chunk for {call_id}: {str(e)}")
+            return None
     def __init__(self, redis_client):
         self.redis = redis_client
         self.active_streams: Dict[str, Dict] = {}

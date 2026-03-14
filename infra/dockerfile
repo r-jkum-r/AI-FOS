@@ -1,56 +1,98 @@
-# Multi-stage Dockerfile for Voice Agent Backend (CPU only)
-FROM python:3.11-slim AS base
+FROM python:3.11-slim as base
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    TORCH_HOME=/app/.torch \
+    HF_HOME=/app/.cache/huggingface
 
 WORKDIR /app
 
-# Install system dependencies + SSL certificates fix + PyAV build deps
-RUN apt-get update && apt-get install -y \
+# Install system dependencies (order matters for build dependencies)
+RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
-    ffmpeg \
-    libsndfile1 \
     git \
     build-essential \
+    cmake \
     pkg-config \
-    libavformat-dev \
+    libasound2-dev \
     libavcodec-dev \
+    libavformat-dev \
     libavdevice-dev \
     libavutil-dev \
-    libavfilter-dev \
     libswscale-dev \
     libswresample-dev \
+    libavfilter-dev \
+    libsndfile1 \
+    ffmpeg \
     && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements first (for caching)
-COPY requirements.txt /app/requirements.txt
+# Upgrade pip, setuptools, wheel first
+RUN pip install --upgrade pip setuptools wheel
 
-# Upgrade pip tools
-RUN python -m pip install --upgrade pip setuptools wheel
+# Install PyTorch CPU first (prevents it from pulling NVIDIA versions)
+RUN pip install torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0 --index-url https://download.pytorch.org/whl/cpu
 
-# Install PyTorch CPU build separately
-RUN pip install --no-cache-dir torch==2.1.2 --index-url https://download.pytorch.org/whl/cpu
+# Copy requirements and install all Python dependencies
+COPY requirements.txt .
+RUN pip install -r requirements.txt
 
-# Install remaining Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Download models at build time (faster startup)
+# Pre-download models to bake into image layers
 RUN python -c "from transformers import AutoTokenizer, AutoModelForSeq2SeqLM; \
-AutoTokenizer.from_pretrained('facebook/nllb-200-distilled-600M'); \
-AutoModelForSeq2SeqLM.from_pretrained('facebook/nllb-200-distilled-600M')"
+    m = 'facebook/nllb-200-distilled-600M'; \
+    AutoTokenizer.from_pretrained(m); \
+    AutoModelForSeq2SeqLM.from_pretrained(m)"
 
 RUN python -c "from faster_whisper import WhisperModel; \
-WhisperModel('medium', device='cpu', compute_type='int8')"
+    WhisperModel('base', device='cpu', compute_type='int8')"
 
-RUN python -c "from TTS.api import TTS; \
-TTS('tts_models/multilingual/multi-dataset/xtts_v2')"
+RUN python -c "import nltk; \
+    nltk.download('punkt', quiet=True); \
+    nltk.download('averaged_perceptron_tagger', quiet=True)"
 
-# Copy backend application code
-COPY backend/ /app/
+# Copy application code
+COPY backend/ /app/backend/
+COPY docker-entrypoint.sh /app/
 
-# Create models directory
-RUN mkdir -p /models
+RUN chmod +x /app/docker-entrypoint.sh
+
+EXPOSE 8000 50051
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
+CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+# ============================================================================
+# Production Stage
+# ============================================================================
+FROM base as production
+
+# Remove build dependencies in production
+RUN apt-get update && apt-get remove -y build-essential cmake && \
+    apt-get autoremove -y && \
+    rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN useradd -m -u 1000 voiceagent
+USER voiceagent
+
+# Memory optimization for long-running processes
+ENV MALLOC_TRIM_THRESHOLD_=100000
+
+    WhisperModel("medium", device="cpu", compute_type="int8")'
+
+# Synthesis Model (XTTS v2)
+RUN python -c 'from TTS.api import TTS; \
+    TTS("tts_models/multilingual/multi-dataset/xtts_v2", gpu=False)'
+
+# 6. Final code copy
+COPY . .
 
 EXPOSE 8000
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+# Using 1 worker is critical to stay under 8GB RAM with these models
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
