@@ -1,6 +1,6 @@
 # ============================================================================
 # Builder Stage
-# Has compiler + headers. Installs all Python deps and downloads models.
+# Installs all Python deps and pre-downloads models.
 # Nothing from this stage leaks into the final image.
 # ============================================================================
 FROM python:3.11-slim AS builder
@@ -8,73 +8,71 @@ FROM python:3.11-slim AS builder
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    TORCH_HOME=/app/.torch \
     HF_HOME=/app/.cache/huggingface
 
 WORKDIR /app
 
-# Build-time deps only (compiler + headers for fasttext-wheel, psycopg2, librosa)
-# libav* dev headers NOT needed — PyAV bundles its own FFmpeg
+# Build-time deps: compiler + headers for fasttext-wheel and libsndfile
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     cmake \
     pkg-config \
-    libasound2-dev \
     libsndfile1-dev \
     && rm -rf /var/lib/apt/lists/*
 
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 
-# Step 1: PyTorch CPU — must be separate (needs its own --index-url)
+# Step 1: PyTorch CPU — separate index-url required
 RUN pip install --no-cache-dir \
     torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0 \
     --index-url https://download.pytorch.org/whl/cpu
 
-# Step 2: Everything else — torch lines filtered out to avoid double-install
+# Step 2: Everything else — skip torch lines to avoid double-install
 COPY requirements.txt .
 RUN grep -vE "^(torch|torchvision|torchaudio)(==| |$)" requirements.txt \
     | pip install --prefer-binary --no-cache-dir -r /dev/stdin
 
-# Pre-download models into layer cache
+# Pre-download NLLB translation model
 RUN python -c "\
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM; \
 m='facebook/nllb-200-distilled-600M'; \
 AutoTokenizer.from_pretrained(m); \
 AutoModelForSeq2SeqLM.from_pretrained(m)"
 
+# Pre-download Whisper base model
 RUN python -c "\
 from faster_whisper import WhisperModel; \
 WhisperModel('base', device='cpu', compute_type='int8')"
 
+# Download NLTK data (punkt_tab is the correct name in nltk 3.9+)
 RUN python -c "\
 import nltk; \
-nltk.download('punkt', quiet=True); \
-nltk.download('averaged_perceptron_tagger', quiet=True)"
+nltk.download('punkt_tab', quiet=True); \
+nltk.download('averaged_perceptron_tagger_eng', quiet=True)"
 
 
 # ============================================================================
 # Production Stage
-# Clean runtime image — no compiler, no headers, no build tools
+# Clean runtime image — no compiler, no build tools
 # ============================================================================
 FROM python:3.11-slim AS production
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app/backend \
-    HF_HOME=/app/.cache/huggingface \
-    MALLOC_TRIM_THRESHOLD_=100000
+    HF_HOME=/app/.cache/huggingface
 
 WORKDIR /app
 
 # Runtime-only system libs
-# curl: healthcheck; libsndfile1: audio I/O; ffmpeg: CLI audio processing
+# curl: healthcheck  libsndfile1: audio I/O  ffmpeg: audio processing
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     libsndfile1 \
     ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy installed packages and downloaded models from builder — nothing else
+# Copy installed packages and pre-downloaded models from builder
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 COPY --from=builder /app/.cache /app/.cache
@@ -88,7 +86,7 @@ RUN chmod +x /app/docker-entrypoint.sh
 RUN useradd -m -u 1000 voiceagent && chown -R voiceagent:voiceagent /app
 USER voiceagent
 
-EXPOSE 8000 50051
+EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
