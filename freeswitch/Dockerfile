@@ -30,14 +30,21 @@ class ESLServer:
         
     def handle_client(self, client_socket, addr):
         print(f"[ESL] Client connected from {addr}")
+        # Send auth challenge first — client must wait for this before sending password
         client_socket.send(b"Content-Type: auth/request\n\n")
         
         try:
-            data = client_socket.recv(1024).decode()
-            if f"password {self.password}" in data:
+            data = b""
+            while b"\n\n" not in data:
+                chunk = client_socket.recv(1024)
+                if not chunk:
+                    return
+                data += chunk
+
+            if f"auth {self.password}".encode() in data:
                 self.authenticated = True
                 client_socket.send(b"Content-Type: command/reply\nReply-Text: +OK accepted\n\n")
-                print(f"[ESL] Client authenticated")
+                print(f"[ESL] Client authenticated from {addr}")
                 
                 # Keep connection alive and respond to commands
                 while True:

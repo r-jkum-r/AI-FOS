@@ -27,6 +27,9 @@ from config import settings
 from call_handler import CallHandler
 from websocket_stream import AudioStreamManager
 from metrics import calls_total, active_calls, audio_packets_processed, errors_total
+from pipeline import VoicePipeline
+
+# Module-level shared pipeline instance for model warmup — unused, removed
 
 try:
     from esl_integration import ESLIntegration
@@ -43,6 +46,10 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+# Suppress noisy internal loggers for optional services
+logging.getLogger("kafka").setLevel(logging.CRITICAL)
+logging.getLogger("kafka.conn").setLevel(logging.CRITICAL)
 
 
 def _init_tracing():
@@ -91,6 +98,9 @@ async def lifespan(app: FastAPI):
     state.call_handler = CallHandler(state.redis_client)
     state.stream_manager = AudioStreamManager(state.call_handler)
     logger.info("Call handler and stream manager initialised")
+
+    # Pre-load AI models in background so first call isn't slow
+    asyncio.create_task(_preload_models())
 
     if ESLIntegration:
         try:
@@ -157,6 +167,22 @@ app.add_middleware(
 )
 
 
+async def _preload_models():
+    """Load all AI models at startup in a background thread."""
+    logger.info("Pre-loading AI models in background...")
+    try:
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, _load_models_sync)
+        logger.info("All AI models loaded and ready")
+    except Exception as e:
+        logger.error(f"Model preload failed: {e}")
+
+
+def _load_models_sync():
+    from pipeline import load_models
+    load_models()
+
+
 # ── Health ────────────────────────────────────────────────────────────────────
 
 @app.get("/health")
@@ -181,6 +207,15 @@ async def detailed_health():
     return {"status": "operational", "checks": checks}
 
 
+@app.get("/ready")
+async def readiness():
+    """Returns 200 only when AI models are fully loaded."""
+    from pipeline import models_ready as pipeline_models_ready
+    if pipeline_models_ready():
+        return {"status": "ready", "models": "loaded"}
+    return JSONResponse(status_code=503, content={"status": "loading", "models": "pending"})
+
+
 # ── Metrics ───────────────────────────────────────────────────────────────────
 
 @app.get("/metrics")
@@ -195,8 +230,23 @@ async def audio_stream_handler(websocket: WebSocket, call_id: str):
     await websocket.accept()
     logger.info(f"WebSocket connected: {call_id}")
     active_calls.inc()
+
+    # Ensure call record exists
+    existing = await state.call_handler.get_call(call_id)
+    if not existing:
+        await state.call_handler.create_call(
+            caller_id="websocket",
+            destination="it-team",
+            call_id=call_id,
+        )
+
+    await state.stream_manager.register_connection(call_id, websocket)
+
+    # Start the AI processing pipeline for this call
+    pipeline = VoicePipeline(call_id, state.stream_manager, state.call_handler)
+    pipeline_task = asyncio.create_task(pipeline.run())
+
     try:
-        await state.stream_manager.register_connection(call_id, websocket)
         while True:
             audio_data = await websocket.receive_bytes()
             audio_packets_processed.inc()
@@ -207,7 +257,13 @@ async def audio_stream_handler(websocket: WebSocket, call_id: str):
         logger.error(f"WebSocket error for {call_id}: {e}")
         errors_total.labels(type=type(e).__name__).inc()
     finally:
+        pipeline_task.cancel()
+        try:
+            await pipeline_task
+        except asyncio.CancelledError:
+            pass
         await state.stream_manager.unregister_connection(call_id)
+        await state.call_handler.terminate_call(call_id)
         active_calls.dec()
 
 

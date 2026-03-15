@@ -28,46 +28,62 @@ class ESLIntegration:
         self.writer: Optional[asyncio.StreamWriter] = None
 
     async def run(self):
-        """Main event loop — reconnects on failure with exponential backoff"""
+        """Main event loop — reconnects on failure with exponential backoff."""
         backoff = 5
+        _first_failure = True
         while True:
             try:
                 await self.connect()
                 if self.is_connected:
-                    backoff = 5  # reset on successful connect
+                    backoff = 5
+                    _first_failure = True
                     await self.listen_for_events()
             except Exception as e:
-                logger.error(f"ESL error: {str(e)}")
+                if _first_failure:
+                    logger.warning(f"ESL unavailable, retrying with backoff: {e}")
+                    _first_failure = False
                 self.is_connected = False
             await asyncio.sleep(backoff)
-            backoff = min(backoff * 2, 60)  # cap at 60s
+            backoff = min(backoff * 2, 60)
 
     async def connect(self):
-        """Connect and authenticate to FreeSWITCH event socket"""
+        """Connect and authenticate to FreeSWITCH event socket."""
         try:
             self.reader, self.writer = await asyncio.open_connection(self.host, self.port)
+
+            # Wait for auth challenge from server before sending password
+            challenge = await self.reader.readuntil(b"\n\n")
+            if b"auth/request" not in challenge:
+                logger.warning(f"ESL unexpected challenge: {challenge!r}")
+                self.is_connected = False
+                return
 
             self.writer.write(f"auth {self.password}\n\n".encode())
             await self.writer.drain()
 
             response = await self.reader.readuntil(b"\n\n")
-            if b"+OK" in response or b"OK" in response:
+            if b"+OK" in response:
                 self.is_connected = True
-                logger.info(f"✓ ESL connected to {self.host}:{self.port}")
+                logger.info(f"ESL connected to {self.host}:{self.port}")
                 await self.subscribe_events()
             else:
-                logger.error("ESL authentication failed")
+                logger.warning(f"ESL authentication failed: {response!r}")
                 self.is_connected = False
         except Exception as e:
-            logger.error(f"ESL connection failed: {str(e)}")
+            logger.warning(f"ESL connection failed: {self.host}:{self.port} — {e}")
             self.is_connected = False
 
     async def subscribe_events(self):
-        """Subscribe to relevant FreeSWITCH events"""
+        """Subscribe to relevant FreeSWITCH events."""
         events = ["CHANNEL_CREATE", "CHANNEL_ANSWER", "CHANNEL_HANGUP", "DTMF", "CUSTOM"]
         for event in events:
             self.writer.write(f"event plain {event}\n\n".encode())
             await self.writer.drain()
+            # Drain the +OK acknowledgement for each subscription
+            try:
+                await asyncio.wait_for(self.reader.readuntil(b"\n\n"), timeout=3)
+            except asyncio.TimeoutError:
+                pass
 
     async def listen_for_events(self):
         """Read and dispatch events from FreeSWITCH"""

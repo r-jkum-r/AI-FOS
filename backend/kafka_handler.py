@@ -1,6 +1,7 @@
 """
 Kafka Event Handler - Publishes and consumes call events.
-Consumer runs in a thread executor to avoid blocking the asyncio event loop.
+Initialization is non-blocking — if Kafka is unavailable the handler
+silently skips rather than delaying application startup.
 """
 import asyncio
 import json
@@ -9,6 +10,11 @@ from datetime import datetime
 from typing import List, Optional
 
 logger = logging.getLogger(__name__)
+
+# Silence kafka-python's internal noisy connection logger
+logging.getLogger("kafka").setLevel(logging.CRITICAL)
+
+_CONNECT_TIMEOUT = 5
 
 
 class KafkaCallEventHandler:
@@ -26,33 +32,40 @@ class KafkaCallEventHandler:
         self.producer = None
         self.consumer = None
 
-        try:
-            from kafka import KafkaProducer
-            self.producer = KafkaProducer(
-                bootstrap_servers=bootstrap_servers,
-                value_serializer=lambda v: json.dumps(v).encode("utf-8"),
-                request_timeout_ms=5000,
-                retries=0,
-            )
-            logger.info(f"Kafka producer initialized: {bootstrap_servers}")
-        except Exception as e:
-            logger.warning(f"Kafka producer init failed: {e}")
+    def _broker_reachable(self) -> bool:
+        """Quick TCP check — avoids kafka-python's slow internal retry on DNS failure."""
+        import socket
+        for server in self.bootstrap_servers:
+            try:
+                host, port = server.rsplit(":", 1)
+                with socket.create_connection((host, int(port)), timeout=_CONNECT_TIMEOUT):
+                    return True
+            except Exception:
+                continue
+        return False
 
-        try:
-            from kafka import KafkaConsumer
-            self.consumer = KafkaConsumer(
-                "voice-calls",
-                "voice-events",
-                bootstrap_servers=bootstrap_servers,
-                group_id=consumer_group,
-                value_deserializer=lambda m: json.loads(m.decode("utf-8")),
-                auto_offset_reset="earliest",
-                request_timeout_ms=5000,
-                consumer_timeout_ms=5000,
-            )
-            logger.info(f"Kafka consumer initialized: {bootstrap_servers}")
-        except Exception as e:
-            logger.warning(f"⚠ Kafka consumer init failed: {e}")
+    def _init_producer(self):
+        from kafka import KafkaProducer
+        self.producer = KafkaProducer(
+            bootstrap_servers=self.bootstrap_servers,
+            value_serializer=lambda v: json.dumps(v).encode("utf-8"),
+            request_timeout_ms=_CONNECT_TIMEOUT * 1000,
+            retries=0,
+            max_block_ms=_CONNECT_TIMEOUT * 1000,
+        )
+
+    def _init_consumer(self):
+        from kafka import KafkaConsumer
+        self.consumer = KafkaConsumer(
+            "voice-calls",
+            "voice-events",
+            bootstrap_servers=self.bootstrap_servers,
+            group_id=self.consumer_group,
+            value_deserializer=lambda m: json.loads(m.decode("utf-8")),
+            auto_offset_reset="earliest",
+            request_timeout_ms=_CONNECT_TIMEOUT * 1000,
+            consumer_timeout_ms=_CONNECT_TIMEOUT * 1000,
+        )
 
     async def publish_call_event(self, event_type: str, call_id: str, data: dict):
         if not self.producer:
@@ -69,11 +82,37 @@ class KafkaCallEventHandler:
             logger.error(f"Error publishing Kafka event: {e}")
 
     async def consume_events(self):
-        """Consume Kafka messages — runs blocking consumer in a thread."""
-        if not self.consumer:
-            logger.warning("Kafka consumer not available, skipping")
-            return
+        """
+        Try to connect to Kafka in a thread (non-blocking).
+        If unavailable, logs a warning and exits cleanly.
+        """
         loop = asyncio.get_event_loop()
+
+        # Fast TCP check before attempting kafka-python init
+        reachable = await loop.run_in_executor(None, self._broker_reachable)
+        if not reachable:
+            logger.warning(f"Kafka brokers unreachable: {self.bootstrap_servers} — skipping")
+            return
+
+        try:
+            await asyncio.wait_for(
+                loop.run_in_executor(None, self._init_producer),
+                timeout=_CONNECT_TIMEOUT + 1,
+            )
+            logger.info(f"Kafka producer connected: {self.bootstrap_servers}")
+        except Exception as e:
+            logger.warning(f"Kafka producer unavailable: {e}")
+
+        try:
+            await asyncio.wait_for(
+                loop.run_in_executor(None, self._init_consumer),
+                timeout=_CONNECT_TIMEOUT + 1,
+            )
+            logger.info(f"Kafka consumer connected: {self.bootstrap_servers}")
+        except Exception as e:
+            logger.warning(f"Kafka consumer unavailable: {e}")
+            return
+
         await loop.run_in_executor(None, self._consume_blocking)
 
     def _consume_blocking(self):
