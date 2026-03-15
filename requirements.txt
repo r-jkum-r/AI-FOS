@@ -1,11 +1,4 @@
-# ============================================================================
-# AI Voice Agent - Comprehensive Requirements
-# Production-ready, fully open-source tech stack
-# ============================================================================
-
-# ============================================================================
-# Web Framework & Async
-# ============================================================================
+# Web Framework
 fastapi==0.119.0
 uvicorn[standard]==0.30.0
 websockets==14.1
@@ -14,97 +7,78 @@ pydantic==2.8.2
 pydantic-settings==2.4.0
 python-multipart==0.0.7
 
-# ============================================================================
-# gRPC & Protocol Buffers
-# ============================================================================
-grpcio==1.65.4
-grpcio-tools==1.65.4
-protobuf==5.28.1
+# gRPC
+# grpcio-tools 1.62.3 requires protobuf>=4.21.6,<5
+# opentelemetry-proto 1.25.0 requires protobuf>=3.19,<5
+# protobuf 4.25.5 satisfies both constraints
+grpcio==1.62.3
+grpcio-tools==1.62.3
+protobuf==4.25.5
 
-# ============================================================================
-# Data Science & ML Core
-# ============================================================================
+# AI / ML
+# transformers 4.40.2 requires numpy<2.0 — 1.26.4 satisfies this
+transformers==4.40.2
+safetensors==0.4.3
+
+# PyTorch CPU
+# torch 2.4.0 + numpy>=2.1 causes _ARRAY_API crash — 1.26.4 is safe
+# Installed separately in Dockerfile from pytorch.org whl index.
+# Pinned here so local/CI installs also get the correct CPU-only build.
 torch==2.4.0
 torchvision==0.19.0
 torchaudio==2.4.0
-transformers==4.40.2
-datasets==2.21.0
-accelerate==0.31.0
-safetensors==0.4.3
 
-# ============================================================================
-# Speech-to-Text (STT)
-# ============================================================================
-openai-whisper==20240930
-faster-whisper==1.1.5
-silero-vad==5.1
+# Speech Recognition
+faster-whisper==1.2.1
 
-# ============================================================================
-# Language Detection & Processing
-# ============================================================================
-fasttext==0.9.2
+# Language Detection
+fasttext-wheel==0.9.2
 langdetect==1.0.9
+
+# NLP
 nltk==3.9.1
 
-# ============================================================================
-# Text-to-Speech (TTS) & Audio Synthesis
-# ============================================================================
-TTS==0.23.1
-glow-tts==1.0.3
-hifigan==0.2.2
-phonemizer==3.2.1
+# TTS (TTS 0.22.0 requires numpy<2.0)
+TTS==0.22.0
 
-# ============================================================================
 # Audio Processing
-# ============================================================================
+# numpy 1.26.4 satisfies TTS, transformers, and torch 2.4.0
 librosa==0.10.2
 soundfile==0.12.1
 scipy==1.14.1
 numpy==1.26.4
 av==12.1.0
 pydub==0.25.1
-resampy==0.4.3
 
-# ============================================================================
-# Message Queue & Streaming
-# ============================================================================
+# Messaging
 kafka-python==2.0.2
 confluent-kafka==2.4.0
 redis[hiredis]==5.0.7
-redis-lru==1.0.2
 
-# ============================================================================
-# Database & Persistence
-# ============================================================================
+# Database
 psycopg2-binary==2.9.10
 sqlalchemy==2.0.36
 alembic==1.13.2
 asyncpg==0.30.0
-psycopg2cffi==2.9.10
 
-# ============================================================================
-# Monitoring & Observability
-# ============================================================================
+# Monitoring
+# All OTel packages aligned — jaeger-exporter replaced with otlp (jaeger
+# supports OTLP natively since v1.35; jaeger-exporter abandoned July 2023)
 prometheus-client==0.21.0
 opentelemetry-api==1.25.0
 opentelemetry-sdk==1.25.0
-opentelemetry-exporter-jaeger==1.25.0
+opentelemetry-exporter-otlp==1.25.0
 opentelemetry-instrumentation-fastapi==0.46b0
 opentelemetry-instrumentation-redis==0.46b0
 opentelemetry-instrumentation-sqlalchemy==0.46b0
-opentelemetry-instrumentation-kafka==0.46b0
-python-json-logger==2.0.8
+python-json-logger==2.0.7
 
-# ============================================================================
-# Configuration & Secrets
-# ============================================================================
+# Config
 python-dotenv==1.0.1
 pyyaml==6.0.2
 toml==0.10.2
 
-# ============================================================================
 # Utilities
-# ============================================================================
 requests==2.32.3
 httpx==0.27.0
 python-dateutil==2.8.2
@@ -113,18 +87,5 @@ click==8.1.7
 typer==0.12.4
 loguru==0.7.2
 
-# ============================================================================
-# Testing & Development
-# ============================================================================
-pytest==8.2.0
-pytest-asyncio==0.24.0
-pytest-cov==5.0.0
-black==24.4.2
-flake8==7.1.1
-mypy==1.10.0
-isort==5.13.2
-
-# ============================================================================
 # Deployment
-# ============================================================================
 gunicorn==22.0.0

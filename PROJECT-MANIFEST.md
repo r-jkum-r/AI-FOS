@@ -226,7 +226,7 @@ docker-compose up -d
 docker-compose ps
 
 # Check logs
-docker-compose logs -f fastapi
+docker-compose logs -f backend
 ```
 
 ### 3. Test

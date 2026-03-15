@@ -4,10 +4,10 @@ Integration tests for AI pipeline
 import pytest
 import asyncio
 import numpy as np
-from backend.stt_engine import WhisperSTT
-from backend.language_detector import LanguageDetector
-from backend.translator import TranslationEngine
-from backend.tts_engine import CoquiTTS
+from stt_engine import WhisperSTT
+from language_detector import LanguageDetector
+from translator import TranslationEngine
+from tts_engine import CoquiTTS
 
 @pytest.fixture
 async def pipeline_components():

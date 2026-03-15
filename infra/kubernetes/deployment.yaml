@@ -4,19 +4,6 @@ metadata:
   name: voice-agent
 
 ---
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: asterisk-config
-  namespace: voice-agent
-data:
-  extensions.conf: |
-    [voice-agent]
-    exten => _X.,1,NoOp(Incoming call)
-        same => n,Stasis(voice-agent)
-        same => n,Hangup()
-
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -79,9 +66,14 @@ spec:
         image: voice-agent-backend:latest
         ports:
         - containerPort: 8000
+        - containerPort: 50051
         env:
-        - name: REDIS_URL
-          value: "redis://redis:6379"
+        - name: REDIS_HOST
+          value: "redis"
+        - name: REDIS_PORT
+          value: "6379"
+        - name: OTLP_ENDPOINT
+          value: "http://jaeger:4317"
         resources:
           requests:
             memory: "4Gi"
@@ -93,14 +85,14 @@ spec:
           httpGet:
             path: /health
             port: 8000
-          initialDelaySeconds: 30
-          periodSeconds: 10
+          initialDelaySeconds: 60
+          periodSeconds: 30
         readinessProbe:
           httpGet:
             path: /health
             port: 8000
-          initialDelaySeconds: 10
-          periodSeconds: 5
+          initialDelaySeconds: 30
+          periodSeconds: 10
 
 ---
 apiVersion: v1
@@ -112,8 +104,12 @@ spec:
   selector:
     app: backend
   ports:
-  - port: 8000
+  - name: http
+    port: 8000
     targetPort: 8000
+  - name: grpc
+    port: 50051
+    targetPort: 50051
   type: LoadBalancer
 
 ---
@@ -147,28 +143,25 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: asterisk
+  name: freeswitch
   namespace: voice-agent
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: asterisk
+      app: freeswitch
   template:
     metadata:
       labels:
-        app: asterisk
+        app: freeswitch
     spec:
       containers:
-      - name: asterisk
-        image: andrius/asterisk:18
+      - name: freeswitch
+        image: freeswitch/freeswitch:latest
         ports:
         - containerPort: 5060
           protocol: UDP
-        - containerPort: 8088
-        volumeMounts:
-        - name: config
-          mountPath: /etc/asterisk
+        - containerPort: 8021
         resources:
           requests:
             memory: "512Mi"
@@ -176,26 +169,22 @@ spec:
           limits:
             memory: "1Gi"
             cpu: "1"
-      volumes:
-      - name: config
-        configMap:
-          name: asterisk-config
 
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: asterisk
+  name: freeswitch
   namespace: voice-agent
 spec:
   selector:
-    app: asterisk
+    app: freeswitch
   ports:
   - name: sip
     port: 5060
     targetPort: 5060
     protocol: UDP
-  - name: ari
-    port: 8088
-    targetPort: 8088
+  - name: esl
+    port: 8021
+    targetPort: 8021
   type: LoadBalancer

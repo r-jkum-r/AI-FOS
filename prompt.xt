@@ -1,0 +1,250 @@
+UPDATED MASTER PROMPT — FULLY OPEN SOURCE ONLY
+
+You are a Senior AI Architect and Full Stack Engineer.
+
+Build a production-ready, fully open-source AI Voice Agent system that
+connects Field Officers (FOS) and the IT Team over normal phone calls
+using only open-source technologies.
+
+No paid APIs, no proprietary SaaS services allowed.
+
+🎯 PROBLEM STATEMENT
+
+Many FOS speak only regional languages (Tamil, Telugu, Kannada, Marathi,
+Hindi).
+
+The IT Team understands only Hinglish (Hindi + English mix).
+
+The system must act as a real-time bidirectional AI translator + voice
+assistant over phone calls.
+
+🎯 FINAL CALL FLOW
+
+FOS dials company number via PSTN/SIP
+
+FOS speaks in regional language
+
+AI converts speech → Hinglish voice in real time
+
+IT Team hears Hinglish audio
+
+IT Team replies in Hinglish voice
+
+AI converts Hinglish → original regional language voice
+
+FOS hears reply in their own language
+
+⚠️ STRICT RULE: Only voice communication, no text UI.
+
+🎯 CORE REQUIREMENTS
+
+✔ Works on normal phone numbers (PSTN/SIP) ✔ Real-time bidirectional
+voice translation ✔ Auto regional language detection ✔ Streaming
+pipeline with <3 sec latency ✔ Fully open-source stack ✔ Horizontally
+scalable microservices architecture ✔ Noise-robust audio handling
+
+🎯 SUPPORTED LANGUAGES
+
+Input (FOS): Tamil, Telugu, Kannada, Marathi, Hindi Output (IT Team):
+Hinglish Voice Reply: Hinglish → Original Regional Voice
+
+🎯 MANDATORY OPEN-SOURCE TECH STACK Telephony Layer
+
+SIP Server: FreeSWITCH (modern alternative to Asterisk with better performance)
+
+SIP Load Balancer: Kamailio (enterprise-grade SIP routing & NAT traversal)
+
+SIP Trunk provider compatible (generic VoIP)
+
+Backend
+
+Framework: FastAPI + AsyncIO (async-first design for voice streams)
+
+Streaming: WebSockets + RTP audio pipeline with SRTP encryption
+
+gRPC: Backend-to-backend service communication
+
+Speech Processing
+
+STT: Silero VAD + Whisper v3 (streaming optimized)
+
+Fallback STT: wav2vec2 (Meta - resource efficient)
+
+Language Detection: fasttext + HuggingFace language-identification (ensemble)
+
+Translation Engine
+
+Primary: NLLB-200 (Facebook - 200 languages, Hinglish optimized)
+
+Fallback: M2M-100 (better multilingual handling)
+
+Hinglish Fine-tuning: Domain-specific NLLB checkpoint
+
+Text-to-Speech
+
+Hinglish Voice: Glow-TTS + HiFi-GAN vocoder (faster, higher quality)
+
+Regional Voices: VITS multilingual models (real-time capable)
+
+Fallback TTS: Coqui TTS (backup, proven stable)
+
+Queue & State Management
+
+Message Queue: Apache Kafka (high-throughput call events)
+
+Session State: Redis (in-memory cache) + PostgreSQL (persistence)
+
+Call State Store: TimescaleDB (time-series call metrics)
+
+Deployment
+
+Containers: Docker + Docker Compose (dev), OCI-compliant registries
+
+Orchestration: Kubernetes (prod) with Horizontal Pod Autoscaling
+
+Container Registry: Nexus or Harbor (private registry)
+
+Networking
+
+Service Mesh: Istio (advanced traffic management & security)
+
+Ingress: NGINX Ingress Controller
+
+Load Balancer: HAProxy (RTP-aware load balancing)
+
+Monitoring & Observability
+
+Metrics: Prometheus + VictoriaMetrics (long-term storage)
+
+Dashboards: Grafana + custom voice-specific dashboards
+
+Distributed Tracing: Jaeger (call flow tracing)
+
+Logging: ELK Stack (Elasticsearch + Logstash + Kibana)
+
+Profiling: Pyflame + py-spy (performance bottleneck detection)
+
+Alerting: AlertManager with Slack/PagerDuty integration
+
+🎯 HIGH-LEVEL ARCHITECTURE
+
+FOS Call (SIP/PSTN) ↓ Kamailio SIP Router (load balancing) ↓ FreeSWITCH PBX (RTP Stream) ↓ FastAPI Voice Gateway (async handlers) ↓ Silero VAD (voice activity detection) ↓ Streaming Audio → Whisper v3 STT ↓ Language Detection Ensemble (fasttext + HF) ↓ NLLB-200 Translator (with Hinglish optimization) ↓ Glow-TTS + HiFi-GAN (Hinglish Voice synthesis) ↓ SRTP-encrypted audio stream to IT Team SIP Call
+
+Observability Layer: Jaeger tracing, Prometheus metrics, ELK logging
+
+Session Management: Redis (cache) + TimescaleDB (metrics) + PostgreSQL (persistence)
+
+(Reverse Flow) IT Team Hinglish Voice → VAD → STT → Translation → Regional VITS TTS → SRTP Stream → FOS
+
+🎯 FEATURES TO IMPLEMENT
+
+SIP call handling via FreeSWITCH Event Socket Layer (ESL)
+
+Kamailio SIP routing & failover logic
+
+Real-time RTP audio streaming pipeline with SRTP encryption
+
+Silero VAD for efficient voice activity detection
+
+Regional language auto-detection (ensemble model)
+
+Hinglish translation engine with fine-tuned NLLB-200
+
+Bidirectional voice conversion (TTS via Glow-TTS + VITS)
+
+Intelligent fallback mechanisms for language/TTS errors
+
+Redis-based session state + PostgreSQL persistence
+
+TimescaleDB for call analytics & latency metrics
+
+Kafka-based event streaming for call lifecycle management
+
+Distributed tracing with Jaeger for debugging
+
+Admin dashboard (React + WebSocket) showing real-time active calls
+
+Persistent transcription logs (ELK Stack)
+
+gRPC services for inter-service communication
+
+Horizontal scaling via Kubernetes with auto-scaling policies
+
+Service mesh (Istio) for traffic management & security
+
+Prometheus + Grafana custom dashboards for Sla monitoring
+
+🎯 DIRECTORY STRUCTURE /voice-ai-agent ├── backend/ │ ├── main.py │ ├── call_handler.py │ ├── translator.py │ ├── stt_engine.py │ ├── tts_engine.py │ ├── language_detector.py │ ├── vad_engine.py │ ├── websocket_stream.py │ ├── grpc_services/ │ │ └── voice_service.proto │ └── config.py ├── freeswitch/ │ ├── dialplan/ │ │ └── voice-agent.xml │ ├── sip_profiles/ │ │ └── external.xml │ └── Dockerfile ├── kamailio/ │ ├── kamailio.cfg │ └── dispatcher.list ├── infra/ │ ├── docker-compose.yml │ ├── kubernetes/ │ │ ├── deployment.yaml │ │ ├── service.yaml │ │ ├── hpa.yaml │ │ └── istio-config.yaml │ ├── prometheus.yml │ ├── elastic/ │ │ └── elasticsearch.yml │ └── terraform/ ├── monitoring/ │ ├── grafana-dashboards/ │ ├── prometheus/ │ ├── jaeger/ │ └── alertmanager/ ├── dashboard/ │ └── react-admin-panel ├── tests/ │ ├── test_stt.py │ ├── test_translation.py │ ├── test_tts.py │ └── test_pipeline.py └── README.md
+
+🎯 OUTPUT REQUIRED
+
+Complete architecture diagram (Kamailio → FreeSWITCH → FastAPI pipeline)
+
+Full FastAPI backend code with gRPC services
+
+FreeSWITCH Event Socket Layer (ESL) integration
+
+Kamailio SIP routing configuration with failover
+
+Real-time RTP audio streaming implementation with SRTP encryption
+
+Silero VAD + Whisper v3 STT pipeline
+
+NLLB-200 translator with Hinglish fine-tuning guide
+
+Glow-TTS + HiFi-GAN + VITS TTS implementation
+
+Kafka consumer for call event processing
+
+Docker + Docker Compose + Kubernetes deployment files
+
+Istio service mesh configuration (traffic policies, mTLS)
+
+Jaeger distributed tracing setup
+
+ELK Stack (Elasticsearch, Logstash, Kibana) configuration
+
+Prometheus + Grafana dashboards for SLA monitoring
+
+TimescaleDB schema for call metrics
+
+Step-by-step deployment guide (local → K8s → production)
+
+Testing guide with SIP softphones (Linphone, Zoiper)
+
+Scalability & latency optimization strategies
+
+Security best practices (SIP auth, TLS, encryption)
+
+🎯 CONSTRAINTS & SLA TARGETS
+
+End-to-end latency target: <2.5 seconds (improved with Glow-TTS)
+
+P99 latency: <3 seconds under peak load
+
+Support thousands of concurrent calls with Kubernetes auto-scaling
+
+Average call per-node capacity: 50-100 concurrent calls (t3.xlarge instance)
+
+Auto-scale trigger: 70% CPU utilization or 80% memory
+
+Noise robustness: Tested on 70-85 dB ambient field noise
+
+Speech clarity: Weighted mean opinion score (MOS) > 3.8
+
+Transcription accuracy: >85% for clean audio, >70% for noisy audio
+
+High availability: 99.95% uptime (multi-region failover via Kamailio)
+
+Security: End-to-end SRTP encryption, mutual TLS between services
+
+Zero data retention option: Optional complete call purge after processing
+
+🎯 FINAL GOAL
+
+Deliver a fully open-source multilingual AI voice agent enabling:
+
+Regional Language FOS ↔ Real-Time AI Translation ↔ Hinglish-speaking IT
+Team ↔ Voice Reply translated back to regional language
+
+No proprietary APIs. No paid services. Fully self-hosted.

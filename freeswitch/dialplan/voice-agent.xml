@@ -1,50 +1,31 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Voice Agent Dialplan for FreeSWITCH - Production Ready
-     Handles incoming calls and routes audio to FastAPI gateway
-     Supports bidirectional real-time audio streaming with Kafka events
--->
 <include>
   <context name="voice-agent">
-    
-    <!-- ================================================================ -->
-    <!-- Incoming PSTN/SIP Calls -->
-    <!-- ================================================================ -->
+
+    <!-- Incoming PSTN/SIP calls (Indian mobile numbers) -->
     <extension name="incoming-call">
       <condition field="destination_number" expression="^(\+?91)?[6-9][0-9]{9}$">
-        <!-- Log incoming call -->
         <action application="log" data="INFO: Incoming call from ${caller_id_number} to ${destination_number}"/>
         <action application="answer"/>
-        
-        <!-- Store call metadata -->
         <action application="set" data="call_uuid=${uuid}"/>
         <action application="set" data="call_start_time=${strftime(%s)}"/>
-        <action application="set" data="call_source=pstn"/>
-        <action application="set" data="voice_gateway_url=http://fastapi:8000"/>
-        
-        <!-- Bridge to FastAPI audio streaming endpoint -->
-        <action application="bridge" data="sofia/sip/fastapi:8000"/>
-        
-        <!-- Fallback message if bridge fails -->
-        <action application="playback" data="silence_stream://1000"/>
+        <action application="set" data="voice_gateway_url=http://backend:8000"/>
+        <action application="bridge" data="sofia/sip/backend:8000"/>
         <action application="log" data="ERROR: Bridge failed for call ${uuid}"/>
         <action application="hangup" data="NORMAL_CLEARING"/>
       </condition>
     </extension>
-    
-    <!-- ================================================================ -->
-    <!-- SIP Trunk Calls -->
-    <!-- ================================================================ -->
+
+    <!-- SIP URI calls -->
     <extension name="sip-incoming">
       <condition field="destination_number" expression="^sip:.+">
         <action application="log" data="INFO: SIP call from ${sip_from_uri}"/>
         <action application="answer"/>
-        <action application="bridge" data="sofia/sip/fastapi:8000"/>
+        <action application="bridge" data="sofia/sip/backend:8000"/>
       </condition>
     </extension>
-    
-    <!-- ================================================================ -->
-    <!-- Outbound Call to IT Team -->
-    <!-- ================================================================ -->
+
+    <!-- Outbound to IT team -->
     <extension name="call-it-team">
       <condition field="destination_number" expression="^it-team$">
         <action application="log" data="INFO: Routing translated call to IT Team"/>
@@ -53,65 +34,8 @@
         <action application="bridge" data="sofia/sip/it-team@${kamailio_dispatcher}"/>
       </condition>
     </extension>
-    
-    <!-- ================================================================ -->
-    <!-- Call Recording (for audit logs and training) -->
-    <!-- ================================================================ -->
-    <extension name="enable-recording">
-      <condition field="${record_call}" expression="true">
-        <action application="set" data="RECORD_STEREO=true"/>
-        <action application="set" data="record_path=/var/spool/freeswitch/recordings"/>
-        <action application="record_session" data="${record_path}/${uuid}.wav"/>
-        <action application="log" data="INFO: Call recording started: ${uuid}.wav"/>
-      </condition>
-    </extension>
-    
-    <!-- ================================================================ -->
-    <!-- Audio Quality Monitoring -->
-    <!-- ================================================================ -->
-    <extension name="audio-monitoring">
-      <condition>
-        <!-- Log audio codec information -->
-        <action application="log" data="INFO: Call codec: ${write_codec}; Sample rate: ${write_rate}"/>
-      </condition>
-    </extension>
-    
-    <!-- ================================================================ -->
-    <!-- Call Timeout Handling -->
-    <!-- ================================================================ -->
-    <extension name="call-timeout">
-      <condition field="${call_duration}" expression=">3600">
-        <action application="log" data="WARNING: Call timeout detected (${call_duration}s)"/>
-        <action application="hangup" data="ALLOTTED_TIMEOUT"/>
-      </condition>
-    </extension>
-    
-    <!-- ================================================================ -->
-    <!-- Error Handling -->
-    <!-- ================================================================ -->
-    <extension name="handle-error">
-      <condition field="${call_disposition}" expression="^(FAILED|TIMEOUT|DECLINE|INCOMPLETE)$">
-        <action application="log" data="ERROR: Call disposition=${call_disposition}, cause=${hangup_cause}"/>
-        <action application="playback" data="ivr/ivr_call_failed.wav"/>
-        <action application="hangup" data="NORMAL_CLEARING"/>
-      </condition>
-    </extension>
-    
-    <!-- ================================================================ -->
-    <!-- Default Catch-All -->
-    <!-- ================================================================ -->
-    <extension name="default">
-      <condition>
-        <action application="log" data="WARNING: No matching extension for ${destination_number}"/>
-        <action application="hangup" data="CALL_REJECTED"/>
-      </condition>
-    </extension>
-    
-  </context>
-</include>
-      </condition>
-    </extension>
-    
+
+    <!-- Test extension -->
     <extension name="test-extension">
       <condition field="destination_number" expression="^9999$">
         <action application="answer"/>
@@ -119,5 +43,14 @@
         <action application="hangup"/>
       </condition>
     </extension>
+
+    <!-- Default catch-all -->
+    <extension name="default">
+      <condition>
+        <action application="log" data="WARNING: No matching extension for ${destination_number}"/>
+        <action application="hangup" data="CALL_REJECTED"/>
+      </condition>
+    </extension>
+
   </context>
 </include>

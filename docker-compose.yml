@@ -1,328 +1,72 @@
-version: '3.9'
-
-# ============================================================================
-# Voice Agent - Complete Docker Compose Stack
-# Production-ready with all services and no dependency conflicts
-# ============================================================================
-
 services:
-  # ========================================================================
-  # Database Layer
-  # ========================================================================
-  postgres:
-    image: postgres:16-alpine
-    container_name: voice-postgres
-    environment:
-      POSTGRES_DB: ${DB_NAME:-voice_agent}
-      POSTGRES_USER: ${DB_USER:-postgres}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - voice-network
-    restart: unless-stopped
-
-  # ========================================================================
-  # Cache Layer
-  # ========================================================================
   redis:
     image: redis:7-alpine
-    container_name: voice-redis
-    command: redis-server --appendonly yes
-    volumes:
-      - redis_data:/data
     ports:
       - "6379:6379"
+    command: redis-server --appendonly yes
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - voice-network
-    restart: unless-stopped
+      timeout: 3s
+      retries: 3
 
-  # ========================================================================
-  # Message Broker
-  # ========================================================================
-  zookeeper:
-    image: confluentinc/cp-zookeeper:7.6.0
-    container_name: voice-zookeeper
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-    ports:
-      - "2181:2181"
-    healthcheck:
-      test: ["CMD", "echo", "ruok", "|", "nc", "localhost", "2181"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - voice-network
-    restart: unless-stopped
-
-  kafka:
-    image: confluentinc/cp-kafka:7.6.0
-    container_name: voice-kafka
-    depends_on:
-      zookeeper:
-        condition: service_healthy
-    environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
-    ports:
-      - "9092:9092"
-    healthcheck:
-      test: ["CMD", "kafka-broker-api-versions.sh", "--bootstrap-server", "kafka:9092"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - voice-network
-    restart: unless-stopped
-
-  # ========================================================================
-  # SIP Layer - FreeSWITCH
-  # ========================================================================
-  freeswitch:
-    build:
-      context: .
-      dockerfile: freeswitch/Dockerfile
-    container_name: voice-freeswitch
-    depends_on:
-      redis:
-        condition: service_healthy
-      postgres:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
-    environment:
-      FREESWITCH_PASSWORD: ${FREESWITCH_PASSWORD:-ClueCon}
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      POSTGRES_HOST: postgres
-      POSTGRES_DB: ${DB_NAME:-voice_agent}
-      EVENT_SOCKET_PORT: 8021
-    volumes:
-      - ./freeswitch/dialplan:/etc/freeswitch/dialplan/public
-      - ./freeswitch/sip_profiles:/etc/freeswitch/sip_profiles
-      - ./freeswitch/autoload_configs:/etc/freeswitch/autoload_configs
-      - freeswitch_data:/var/lib/freeswitch
-    ports:
-      - "5060:5060/udp"
-      - "5060:5060/tcp"
-      - "8021:8021/tcp"
-      - "10000-10100:10000-10100/udp"
-    healthcheck:
-      test: ["CMD", "fs_cli", "-c", "status"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-    networks:
-      - voice-network
-    restart: unless-stopped
-
-  # ========================================================================
-  # SIP Router - Kamailio
-  # ========================================================================
-  kamailio:
-    image: kamailio:5.7-alpine
-    container_name: voice-kamailio
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      DB_HOST: postgres
-      DB_USER: ${DB_USER:-postgres}
-      DB_PASSWORD: ${DB_PASSWORD:-postgres}
-      DB_NAME: ${DB_NAME:-voice_agent}
-    volumes:
-      - ./kamailio/kamailio.cfg:/etc/kamailio/kamailio.cfg
-      - ./kamailio/dispatcher.list:/etc/kamailio/dispatcher.list
-    ports:
-      - "5061:5060/udp"
-      - "5061:5060/tcp"
-    healthcheck:
-      test: ["CMD", "kamcmd", "core.version"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-    networks:
-      - voice-network
-    restart: unless-stopped
-
-  # ========================================================================
-  # FastAPI Backend
-  # ========================================================================
-  fastapi:
+  backend:
     build:
       context: .
       dockerfile: infra/dockerfile
       target: production
-    container_name: voice-fastapi
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
-      freeswitch:
-        condition: service_healthy
-    environment:
-      ENVIRONMENT: ${ENVIRONMENT:-production}
-      DEBUG: "false"
-      HOST: 0.0.0.0
-      PORT: 8000
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_NAME: ${DB_NAME:-voice_agent}
-      DB_USER: ${DB_USER:-postgres}
-      DB_PASSWORD: ${DB_PASSWORD:-postgres}
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_DB: 0
-      FREESWITCH_HOST: freeswitch
-      FREESWITCH_PORT: 8021
-      FREESWITCH_PASSWORD: ${FREESWITCH_PASSWORD:-ClueCon}
-      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      STT_MODEL: base
-      TRANSLATION_MODEL: facebook/nllb-200-distilled-600M
-      TTS_ENGINE: glowTTS
-      AUDIO_SAMPLE_RATE: 16000
-      AUDIO_CHUNK_SIZE: 1024
-      JAEGER_HOST: jaeger
-      JAEGER_PORT: 6831
-    volumes:
-      - ./backend:/app/backend
-      - model_cache:/app/.cache
     ports:
       - "8000:8000"
       - "50051:50051"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-    networks:
-      - voice-network
-    restart: unless-stopped
-
-  # ========================================================================
-  # Observability - Jaeger
-  # ========================================================================
-  jaeger:
-    image: jaegertracing/all-in-one:latest
-    container_name: voice-jaeger
-    ports:
-      - "5775:5775/udp"
-      - "6831:6831/udp"
-      - "6832:6832/udp"
-      - "5778:5778"
-      - "16686:16686"
-    networks:
-      - voice-network
-    restart: unless-stopped
-
-  # ========================================================================
-  # Observability - Prometheus
-  # ========================================================================
-  prometheus:
-    image: prom/prometheus:latest
-    container_name: voice-prometheus
-    volumes:
-      - ./infra/prometheus.yml:/etc/prometheus/prometheus.yml
-      - prometheus_data:/prometheus
-    ports:
-      - "9090:9090"
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-    networks:
-      - voice-network
-    restart: unless-stopped
-
-  # ========================================================================
-  # Observability - Grafana
-  # ========================================================================
-  grafana:
-    image: grafana/grafana:latest
-    container_name: voice-grafana
     depends_on:
-      - prometheus
-    environment:
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
-    volumes:
-      - grafana_data:/var/lib/grafana
-    ports:
-      - "3000:3000"
-    networks:
-      - voice-network
-    restart: unless-stopped
-
-  # ========================================================================
-  # Observability - ELK
-  # ========================================================================
-  elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
-    container_name: voice-elasticsearch
-    environment:
-      discovery.type: single-node
-      xpack.security.enabled: "false"
-      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
-    volumes:
-      - elasticsearch_data:/usr/share/elasticsearch/data
-    ports:
-      - "9200:9200"
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-    networks:
-      - voice-network
-    restart: unless-stopped
-
-  kibana:
-    image: docker.elastic.co/kibana/kibana:8.11.0
-    container_name: voice-kibana
-    depends_on:
-      elasticsearch:
+      redis:
         condition: service_healthy
     environment:
-      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+      - REDIS_URL=redis://redis:6379
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - OTLP_ENDPOINT=http://jaeger:4317
+      - PYTHONUNBUFFERED=1
+    env_file:
+      - .env
+    volumes:
+      - ai-models:/app/.cache
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+
+  prometheus:
+    image: prom/prometheus:latest
     ports:
-      - "5601:5601"
-    networks:
-      - voice-network
+      - "9090:9090"
+    volumes:
+      - ./infra/prometheus.yml:/etc/prometheus/prometheus.yml
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
     restart: unless-stopped
 
-# ============================================================================
-# Volumes
-# ============================================================================
-volumes:
-  postgres_data:
-  redis_data:
-  freeswitch_data:
-  model_cache:
-  prometheus_data:
-  grafana_data:
-  elasticsearch_data:
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    restart: unless-stopped
 
-# ============================================================================
-# Networks
-# ============================================================================
-networks:
-  voice-network:
-    driver: bridge
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+      - "16686:16686"
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    restart: unless-stopped
+
+volumes:
+  ai-models:
+    driver: local

@@ -20,7 +20,7 @@ echo ""
 echo "Checking required files..."
 required_files=(
     "backend/config.py"
-    "backend/ari_integration.py"
+    "backend/esl_integration.py"
     "backend/main.py"
     "backend/call_handler.py"
     "backend/websocket_stream.py"
@@ -113,11 +113,11 @@ else
     echo "❌ Configuration management missing"
 fi
 
-# Check for ARI integration
-if grep -q "class ARIIntegration" backend/ari_integration.py 2>/dev/null; then
-    echo "✅ ARI integration module exists"
+# Check for ESL integration
+if grep -q "class ESLIntegration" backend/esl_integration.py 2>/dev/null; then
+    echo "✅ ESL integration module exists"
 else
-    echo "❌ ARI integration module missing"
+    echo "❌ ESL integration module missing"
 fi
 
 # Check for proper JSON serialization

@@ -6,7 +6,6 @@ import asyncio
 import logging
 import numpy as np
 from faster_whisper import WhisperModel
-import torch
 
 from config import settings
 
@@ -19,10 +18,10 @@ class WhisperSTT:
         Using faster-whisper for optimized inference
         """
         if model_size is None:
-            model_size = settings.whisper_model_size
-            
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.compute_type = "float16" if self.device == "cuda" else "int8"
+            model_size = settings.STT_MODEL
+
+        self.device = settings.STT_DEVICE
+        self.compute_type = settings.STT_COMPUTE_TYPE
         
         logger.info(f"Loading Whisper model: {model_size} on {self.device}")
         self.model = WhisperModel(

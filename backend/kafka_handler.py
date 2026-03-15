@@ -1,117 +1,106 @@
 """
-Kafka Event Handler - Streams call events to Kafka
-Handles asynchronous event publishing and consumption
+Kafka Event Handler - Publishes and consumes call events.
+Consumer runs in a thread executor to avoid blocking the asyncio event loop.
 """
 import asyncio
-import logging
 import json
-from typing import List, Optional
-from kafka import KafkaConsumer, KafkaProducer
+import logging
 from datetime import datetime
+from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
+
 class KafkaCallEventHandler:
-    """Handles Kafka event streaming for calls"""
-    
+    """Handles Kafka event streaming for calls."""
+
     def __init__(
         self,
         bootstrap_servers: List[str],
         call_handler: Optional[object] = None,
-        consumer_group: str = "voice-gateway"
+        consumer_group: str = "voice-gateway",
     ):
         self.bootstrap_servers = bootstrap_servers
         self.call_handler = call_handler
         self.consumer_group = consumer_group
-        
+        self.producer = None
+        self.consumer = None
+
         try:
+            from kafka import KafkaProducer
             self.producer = KafkaProducer(
                 bootstrap_servers=bootstrap_servers,
-                value_serializer=lambda v: json.dumps(v).encode('utf-8')
+                value_serializer=lambda v: json.dumps(v).encode("utf-8"),
+                request_timeout_ms=5000,
+                retries=0,
             )
-            logger.info(f"✓ Kafka producer initialized: {bootstrap_servers}")
+            logger.info(f"Kafka producer initialized: {bootstrap_servers}")
         except Exception as e:
-            logger.warning(f"⚠ Kafka producer initialization failed: {str(e)}")
-            self.producer = None
-        
+            logger.warning(f"Kafka producer init failed: {e}")
+
         try:
+            from kafka import KafkaConsumer
             self.consumer = KafkaConsumer(
-                'voice-calls',
-                'voice-events',
+                "voice-calls",
+                "voice-events",
                 bootstrap_servers=bootstrap_servers,
                 group_id=consumer_group,
-                value_deserializer=lambda m: json.loads(m.decode('utf-8')),
-                auto_offset_reset='earliest'
+                value_deserializer=lambda m: json.loads(m.decode("utf-8")),
+                auto_offset_reset="earliest",
+                request_timeout_ms=5000,
+                consumer_timeout_ms=5000,
             )
-            logger.info(f"✓ Kafka consumer initialized: {bootstrap_servers}")
+            logger.info(f"Kafka consumer initialized: {bootstrap_servers}")
         except Exception as e:
-            logger.warning(f"⚠ Kafka consumer initialization failed: {str(e)}")
-            self.consumer = None
-    
+            logger.warning(f"⚠ Kafka consumer init failed: {e}")
+
     async def publish_call_event(self, event_type: str, call_id: str, data: dict):
-        """Publish a call event to Kafka"""
         if not self.producer:
-            logger.warning("Kafka producer not available")
             return
-        
         try:
-            event_data = {
+            payload = {
                 "event_type": event_type,
                 "call_id": call_id,
                 "timestamp": datetime.utcnow().isoformat(),
-                "data": data
+                "data": data,
             }
-            
-            self.producer.send(
-                'voice-events',
-                value=event_data
-            )
-            
-            logger.debug(f"✓ Event published: {event_type} for call {call_id}")
+            self.producer.send("voice-events", value=payload)
         except Exception as e:
-            logger.error(f"Error publishing event: {str(e)}")
-    
+            logger.error(f"Error publishing Kafka event: {e}")
+
     async def consume_events(self):
-        """Consume events from Kafka"""
+        """Consume Kafka messages — runs blocking consumer in a thread."""
         if not self.consumer:
-            logger.warning("Kafka consumer not available")
+            logger.warning("Kafka consumer not available, skipping")
             return
-        
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, self._consume_blocking)
+
+    def _consume_blocking(self):
+        """Blocking consumer loop (runs in thread pool)."""
         try:
             for message in self.consumer:
                 try:
                     event = message.value
                     event_type = event.get("event_type")
                     call_id = event.get("call_id")
-                    
                     logger.info(f"Kafka event: {event_type} for call {call_id}")
-                    
-                    # Process event based on type
-                    if event_type == "CALL_STARTED":
-                        await self._handle_call_started(call_id, event.get("data", {}))
-                    elif event_type == "CALL_ENDED":
-                        await self._handle_call_ended(call_id, event.get("data", {}))
-                    elif event_type == "LANGUAGE_DETECTED":
-                        await self._handle_language_detected(call_id, event.get("data", {}))
-                    
+                    if self.call_handler and call_id:
+                        if event_type == "call.created":
+                            asyncio.run_coroutine_threadsafe(
+                                self.call_handler.create_call(
+                                    caller_id=event.get("caller_id", "unknown"),
+                                    destination=event.get("destination", "it-team"),
+                                    call_id=call_id,
+                                ),
+                                asyncio.get_event_loop(),
+                            )
+                        elif event_type == "call.terminated":
+                            asyncio.run_coroutine_threadsafe(
+                                self.call_handler.terminate_call(call_id),
+                                asyncio.get_event_loop(),
+                            )
                 except Exception as e:
-                    logger.error(f"Error processing Kafka message: {str(e)}")
-        
+                    logger.error(f"Error processing Kafka message: {e}")
         except Exception as e:
-            logger.error(f"Kafka consumer error: {str(e)}")
-    
-    async def _handle_call_started(self, call_id: str, data: dict):
-        """Handle call started event"""
-        logger.info(f"Call started: {call_id}")
-        # Add custom logic here
-    
-    async def _handle_call_ended(self, call_id: str, data: dict):
-        """Handle call ended event"""
-        logger.info(f"Call ended: {call_id}")
-        # Add custom logic here
-    
-    async def _handle_language_detected(self, call_id: str, data: dict):
-        """Handle language detected event"""
-        language = data.get("language")
-        logger.info(f"Language detected for {call_id}: {language}")
-        # Add custom logic here
+            logger.error(f"Kafka consumer error: {e}")

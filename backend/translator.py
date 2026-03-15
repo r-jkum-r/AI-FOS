@@ -3,7 +3,6 @@ Translation Engine using NLLB-200 (No Language Left Behind)
 Open-source multilingual translation model by Meta
 """
 import logging
-import torch
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 import asyncio
 
@@ -18,9 +17,9 @@ class TranslationEngine:
         Using distilled version for faster inference
         """
         if model_name is None:
-            model_name = settings.nllb_model_name
-            
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+            model_name = settings.TRANSLATION_MODEL
+
+        self.device = settings.STT_DEVICE  # reuse STT_DEVICE for translation (both CPU)
         logger.info(f"Loading translation model: {model_name} on {self.device}")
         
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
